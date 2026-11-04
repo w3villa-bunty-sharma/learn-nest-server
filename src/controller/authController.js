@@ -53,7 +53,7 @@ const signup = async (req, res) => {
       .update(verificationToken)
       .digest("hex");
 
-    const verificationTokenExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    const verificationTokenExpiry = new Date(Date.now() + 1 * 60 * 1000);
 
     // Save the user and verification token in the database
     await pool.query(
@@ -78,10 +78,10 @@ const signup = async (req, res) => {
       to: normalizedEmail,
       subject: "Verify Your Email Address",
       html: `
-    <h2>Welcome to User Management!</h2>
+    <h2>Welcome to Learn-Nest!</h2>
     <p>Please click the link below to verify your email address:</p>
     <a href="${verificationLink}">Verify Email</a>
-    <p>This link will expire in 24 hours.</p>
+    <p>This link will expire in 1 minute.</p>
   `,
     });
 
@@ -126,10 +126,7 @@ const verifyEmail = async (req, res) => {
     );
 
     if (result.rows.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid or expired verification link",
-      });
+      return res.redirect("http://localhost:3000/verify-email?expired=true");
     }
 
     // Mark the user's email as verified
@@ -142,16 +139,101 @@ const verifyEmail = async (req, res) => {
       [result.rows[0].id],
     );
 
-    return res.status(200).json({
-      success: true,
-      message: "Email verified successfully",
-    });
+    return res.redirect("http://localhost:3000/verify-email?verified=true");
   } catch (error) {
     console.error("Email verification error:", error.message);
 
     return res.status(500).json({
       success: false,
       message: "Internal server error",
+    });
+  }
+};
+
+// RESEND VERIFICATION EMAIL
+const resendVerificationEmail = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    // Check whether email is provided
+    if (!email || typeof email !== "string") {
+      return res.status(400).json({
+        success: false,
+        message: "Email is required",
+      });
+    }
+
+    const normalizedEmail = email.trim().toLowerCase();
+
+    // Find user in database
+    const result = await pool.query(
+      "SELECT id, email, is_email_verified FROM users WHERE email = $1",
+      [normalizedEmail],
+    );
+
+    const user = result.rows[0];
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    // Check whether email is already verified
+    if (user.is_email_verified) {
+      return res.status(400).json({
+        success: false,
+        message: "Email is already verified",
+      });
+    }
+
+    // Generate a new verification token
+    const verificationToken = crypto.randomBytes(32).toString("hex");
+
+    const verificationTokenHash = crypto
+      .createHash("sha256")
+      .update(verificationToken)
+      .digest("hex");
+
+    // Set token expiry to 1 minute
+    const verificationTokenExpiry = new Date(Date.now() + 1 * 60 * 1000);
+
+    // Update verification token in database
+    await pool.query(
+      `UPDATE users
+       SET email_verification_token_hash = $1,
+           email_verification_expires_at = $2
+       WHERE id = $3`,
+      [verificationTokenHash, verificationTokenExpiry, user.id],
+    );
+
+    // Create verification link
+    const verificationLink = `http://localhost:5000/api/auth/verify-email?token=${verificationToken}`;
+
+    // Send verification email using existing transporter
+    await transporter.sendMail({
+      from: process.env.EMAIL_USER,
+      to: normalizedEmail,
+      subject: "Verify Your Email Address",
+      html: `
+        <h2>Welcome to Learn-Nest!</h2>
+        <p>Please click the link below to verify your email address:</p>
+        <a href="${verificationLink}">Verify Email</a>
+        <p>This link will expire in 1 minute.</p>
+      `,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Verification email sent successfully",
+    });
+  } catch (error) {
+    console.error("Resend verification error:", error.message);
+
+    return res.status(500).json({
+      success: false,
+      message: "Unable to resend verification email. Please try again.",
     });
   }
 };
@@ -286,4 +368,4 @@ const getMe = async (req, res) => {
   }
 };
 
-module.exports = { signup, verifyEmail, login, getMe };
+module.exports = { signup, verifyEmail, login, getMe, resendVerificationEmail };
