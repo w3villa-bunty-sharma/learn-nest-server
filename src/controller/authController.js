@@ -3,6 +3,9 @@ const { pool } = require("../config/db");
 const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
 const transporter = require("../config/email");
+const { OAuth2Client } = require("google-auth-library");
+
+const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 // SIGNUP
 const signup = async (req, res) => {
@@ -368,4 +371,119 @@ const getMe = async (req, res) => {
   }
 };
 
-module.exports = { signup, verifyEmail, login, getMe, resendVerificationEmail };
+// GOOGLE LOGIN / SIGNUP
+
+const googleLogin = async (req, res) => {
+  try {
+    const { credential } = req.body;
+
+    if (!credential) {
+      return res.status(400).json({
+        success: false,
+        message: "Google credential is required",
+      });
+    }
+
+    // Verify Google ID token
+    const ticket = await googleClient.verifyIdToken({
+      idToken: credential,
+      audience: process.env.GOOGLE_CLIENT_ID,
+    });
+
+    const payload = ticket.getPayload();
+
+    const { sub: googleId, email, name, email_verified } = payload;
+
+    if (!email || !email_verified) {
+      return res.status(401).json({
+        success: false,
+        message: "Google email is not verified",
+      });
+    }
+
+    const normalizedEmail = email.toLowerCase();
+
+    // Check existing user
+    let result = await pool.query("SELECT * FROM users WHERE email = $1", [
+      normalizedEmail,
+    ]);
+
+    let user = result.rows[0];
+
+    // Create new user if not exists
+    if (!user) {
+      result = await pool.query(
+        `INSERT INTO users
+        (name, email, password_hash, is_email_verified, google_id)
+        VALUES ($1, $2, $3, TRUE, $4)
+        RETURNING id, name, email, role`,
+        [
+          name || normalizedEmail.split("@")[0],
+          normalizedEmail,
+          null,
+          googleId,
+        ],
+      );
+
+      user = result.rows[0];
+    }
+    if (!user.google_id) {
+      await pool.query("UPDATE users SET google_id = $1 WHERE id = $2", [
+        googleId,
+        user.id,
+      ]);
+    } else if (!user.is_email_verified) {
+      await pool.query(
+        `UPDATE users
+         SET is_email_verified = TRUE,
+             email_verification_token_hash = NULL,
+             email_verification_expires_at = NULL
+         WHERE id = $1`,
+        [user.id],
+      );
+
+      user.is_email_verified = true;
+    }
+
+    // Generate JWT
+    const token = jwt.sign(
+      {
+        id: user.id,
+        name: user.name,
+        role: user.role,
+      },
+      process.env.JWT_SECRET,
+      {
+        expiresIn: process.env.JWT_EXPIRES_IN || "1d",
+      },
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "Google login successful",
+      token,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+      },
+    });
+  } catch (error) {
+    console.error("Google login error:", error.message);
+
+    return res.status(500).json({
+      success: false,
+      message: "Google authentication failed",
+    });
+  }
+};
+
+module.exports = {
+  signup,
+  verifyEmail,
+  login,
+  getMe,
+  resendVerificationEmail,
+  googleLogin,
+};
