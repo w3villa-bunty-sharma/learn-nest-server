@@ -1,39 +1,56 @@
+
 require("dotenv").config();
 
 const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
-const { pool, connectDB } = require("./config/db"); 
+const cookieParser = require("cookie-parser");
+
+const { pool, connectDB } = require("./config/db");
+
 const authRoutes = require("./routes/authRoutes");
 const adminMiddleware = require("./middleware/adminMiddleware");
 const authMiddleware = require("./middleware/authMiddleware");
 
+const passport = require("./config/passport");
+
 const app = express();
 
-// Middleware
+// Security middleware
 app.use(helmet());
-app.use(
-  cors({
-    origin: [
-      "http://localhost:3000",
-      "http://127.0.0.1:3000",
-      "http://localhost:5173",
-    ],
-  }),
-);
+
+const corsOptions = {
+  origin: [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:5173",
+  ],
+  credentials: true,
+};
+
+app.use(cors(corsOptions));
+
+// Request middleware
 app.use(express.json());
 
-// Routes
+// Parse cookies before Passport routes.
+app.use(cookieParser());
+
+// Initialize Passport without persistent login sessions.
+app.use(passport.initialize());
+
+// Authentication routes
 app.use("/api/auth", authRoutes);
 
-// Check whether the server is running
+// Health check
 app.get("/api/health", (req, res) => {
   res.json({
     success: true,
-    message: "User Management API is running",
+    message: "Learn-nest API is running",
   });
 });
 
+// Admin dashboard
 app.get(
   "/api/admin/dashboard",
   authMiddleware,

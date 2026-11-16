@@ -479,10 +479,234 @@ const googleLogin = async (req, res) => {
   }
 };
 
+// FACEBOOK LOGIN / SIGNUP
+
+
+const facebookLogin = async (req, res) => {
+  try {
+    const profile = req.user;
+
+    if (!profile || !profile.id) {
+      return res.redirect("http://localhost:3000/login?error=facebook");
+    }
+
+    const facebookId = profile.id;
+    const email = profile.emails?.[0]?.value?.trim().toLowerCase();
+
+    const name =
+      profile.displayName ||
+      [
+        profile.name?.givenName,
+        profile.name?.familyName,
+      ]
+        .filter(Boolean)
+        .join(" ");
+
+    if (!email) {
+      return res.redirect(
+        "http://localhost:3000/login?error=facebook_email"
+      );
+    }
+
+    // Check whether this Facebook account already exists
+    let result = await pool.query(
+      `SELECT id, name, email, role
+       FROM users
+       WHERE facebook_id = $1`,
+      [facebookId]
+    );
+
+    let user = result.rows[0];
+
+    if (!user) {
+      // Check whether this email belongs to an existing account
+      result = await pool.query(
+        `SELECT id FROM users WHERE email = $1`,
+        [email]
+      );
+
+      if (result.rows.length > 0) {
+        return res.redirect(
+          "http://localhost:3000/login?error=account_exists"
+        );
+      }
+
+      // Create a new Facebook user
+      result = await pool.query(
+        `INSERT INTO users
+         (name, email, password_hash, facebook_id, is_email_verified)
+         VALUES ($1, $2, $3, $4, TRUE)
+         RETURNING id, name, email, role`,
+        [
+          name || email.split("@")[0],
+          email,
+          null,
+          facebookId,
+        ]
+      );
+
+      user = result.rows[0];
+    }
+
+    // Generate a short-lived one-time authorization code
+    const authorizationCode = crypto.randomBytes(32).toString("hex");
+
+    // Generate a browser-binding secret
+    const browserBinding = crypto.randomBytes(32).toString("hex");
+
+    const codeHash = crypto
+      .createHash("sha256")
+      .update(authorizationCode)
+      .digest("hex");
+
+    const browserBindingHash = crypto
+      .createHash("sha256")
+      .update(browserBinding)
+      .digest("hex");
+
+    // Store only the hashes in PostgreSQL
+    await pool.query(
+      `INSERT INTO oauth_authorization_codes
+       (code_hash, browser_binding_hash, user_id, expires_at)
+       VALUES ($1, $2, $3, NOW() + INTERVAL '2 minutes')`,
+      [codeHash, browserBindingHash, user.id]
+    );
+
+    // Browser-binding cookie
+    res.cookie("facebook_code_binding", browserBinding, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: 2 * 60 * 1000,
+      path: "/api/auth/facebook/exchange",
+    });
+
+    // Send only the one-time code to the frontend
+    const frontendUrl = new URL("http://localhost:3000/login");
+    frontendUrl.searchParams.set("facebook_code", authorizationCode);
+
+    return res.redirect(frontendUrl.toString());
+  } catch (error) {
+    console.error("Facebook login error:", error);
+
+    return res.redirect(
+      "http://localhost:3000/login?error=facebook"
+    );
+  }
+};
+
+
+// Exchange one-time Facebook code for JWT
+const exchangeFacebookCode = async (req, res) => {
+  try {
+    const { code } = req.body;
+
+    const browserBinding = req.cookies?.facebook_code_binding;
+
+    // Clear the browser-binding cookie
+    res.clearCookie("facebook_code_binding", {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/api/auth/facebook/exchange",
+    });
+
+    if (
+      !code ||
+      typeof code !== "string" ||
+      !browserBinding
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid or expired Facebook authorization.",
+      });
+    }
+
+    const codeHash = crypto
+      .createHash("sha256")
+      .update(code)
+      .digest("hex");
+
+    const browserBindingHash = crypto
+      .createHash("sha256")
+      .update(browserBinding)
+      .digest("hex");
+
+    // Atomically consume the one-time code
+    const result = await pool.query(
+      `UPDATE oauth_authorization_codes
+       SET consumed_at = NOW()
+       WHERE code_hash = $1
+         AND browser_binding_hash = $2
+         AND expires_at > NOW()
+         AND consumed_at IS NULL
+       RETURNING user_id`,
+      [codeHash, browserBindingHash]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(401).json({
+        success: false,
+        message: "Facebook authorization code is invalid or expired.",
+      });
+    }
+
+    const userResult = await pool.query(
+      `SELECT id, name, email, role
+       FROM users
+       WHERE id = $1`,
+      [result.rows[0].user_id]
+    );
+
+    const user = userResult.rows[0];
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found.",
+      });
+    }
+
+    // Generate the application's JWT
+    const token = jwt.sign(
+      {
+        id: user.id,
+        name: user.name,
+        role: user.role,
+      },
+      process.env.JWT_SECRET,
+      {
+        expiresIn: process.env.JWT_EXPIRES_IN || "1d",
+      }
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "Facebook login successful",
+      token,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+      },
+    });
+  } catch (error) {
+    console.error("Facebook code exchange error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Facebook authentication failed.",
+    });
+  }
+};
+
 module.exports = {
   signup,
   verifyEmail,
   login,
+  facebookLogin,
+  exchangeFacebookCode,
   getMe,
   resendVerificationEmail,
   googleLogin,
