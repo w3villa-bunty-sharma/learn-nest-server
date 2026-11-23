@@ -45,7 +45,7 @@ router.get(
   facebookLogin
 );
 
-// Exchange one-time authorization code for JWT
-router.post("/facebook/exchange", exchangeFacebookCode);
+// // Exchange one-time authorization code for JWT
+// router.post("/facebook/exchange", exchangeFacebookCode);
 
 module.exports = router;
