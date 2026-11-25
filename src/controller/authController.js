@@ -6,6 +6,12 @@ const transporter = require("../config/email");
 const { OAuth2Client } = require("google-auth-library");
 
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+const API_BASE_URL = (
+  process.env.API_BASE_URL || `http://localhost:${process.env.PORT || 5000}`
+).replace(/\/$/, "");
+const FRONTEND_URL = (process.env.FRONTEND_URL || "http://localhost:3000")
+  .replace(/\/$/, "");
+const frontendPath = (path) => `${FRONTEND_URL}${path}`;
 
 // SIGNUP
 const signup = async (req, res) => {
@@ -73,7 +79,7 @@ const signup = async (req, res) => {
     );
 
     // Create the email verification link
-    const verificationLink = `http://localhost:5000/api/auth/verify-email?token=${verificationToken}`;
+    const verificationLink = `${API_BASE_URL}/api/auth/verify-email?token=${verificationToken}`;
 
     // Send the verification email
     await transporter.sendMail({
@@ -129,7 +135,7 @@ const verifyEmail = async (req, res) => {
     );
 
     if (result.rows.length === 0) {
-      return res.redirect("http://localhost:3000/verify-email?expired=true");
+      return res.redirect(frontendPath("/verify-email?expired=true"));
     }
 
     // Mark the user's email as verified
@@ -142,7 +148,7 @@ const verifyEmail = async (req, res) => {
       [result.rows[0].id],
     );
 
-    return res.redirect("http://localhost:3000/verify-email?verified=true");
+    return res.redirect(frontendPath("/verify-email?verified=true"));
   } catch (error) {
     console.error("Email verification error:", error.message);
 
@@ -212,7 +218,7 @@ const resendVerificationEmail = async (req, res) => {
     );
 
     // Create verification link
-    const verificationLink = `http://localhost:5000/api/auth/verify-email?token=${verificationToken}`;
+    const verificationLink = `${API_BASE_URL}/api/auth/verify-email?token=${verificationToken}`;
 
     // Send verification email using existing transporter
     await transporter.sendMail({
@@ -487,7 +493,7 @@ const facebookLogin = async (req, res) => {
     const profile = req.user;
 
     if (!profile || !profile.id) {
-      return res.redirect("http://localhost:3000/login?error=facebook");
+      return res.redirect(frontendPath("/login?error=facebook"));
     }
 
     const facebookId = profile.id;
@@ -504,7 +510,7 @@ const facebookLogin = async (req, res) => {
 
     if (!email) {
       return res.redirect(
-        "http://localhost:3000/login?error=facebook_email"
+        frontendPath("/login?error=facebook_email")
       );
     }
 
@@ -527,7 +533,7 @@ const facebookLogin = async (req, res) => {
 
       if (result.rows.length > 0) {
         return res.redirect(
-          "http://localhost:3000/login?error=account_exists"
+          frontendPath("/login?error=account_exists")
         );
       }
 
@@ -576,13 +582,13 @@ const facebookLogin = async (req, res) => {
     res.cookie("facebook_code_binding", browserBinding, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
+      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
       maxAge: 2 * 60 * 1000,
       path: "/api/auth/facebook/exchange",
     });
 
     // Send only the one-time code to the frontend
-    const frontendUrl = new URL("http://localhost:3000/login");
+    const frontendUrl = new URL(frontendPath("/login"));
     frontendUrl.searchParams.set("facebook_code", authorizationCode);
 
     return res.redirect(frontendUrl.toString());
@@ -590,7 +596,7 @@ const facebookLogin = async (req, res) => {
     console.error("Facebook login error:", error);
 
     return res.redirect(
-      "http://localhost:3000/login?error=facebook"
+      frontendPath("/login?error=facebook")
     );
   }
 };
@@ -607,7 +613,7 @@ const exchangeFacebookCode = async (req, res) => {
     res.clearCookie("facebook_code_binding", {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
+      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
       path: "/api/auth/facebook/exchange",
     });
 

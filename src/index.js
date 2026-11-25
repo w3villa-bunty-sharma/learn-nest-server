@@ -24,12 +24,17 @@ const app = express();
 
 app.use(helmet());
 
+const configuredOrigins = [
+  process.env.CLIENT_URL,
+  ...(process.env.CORS_ORIGINS || "").split(","),
+  "http://localhost:3000",
+  "http://127.0.0.1:3000",
+  "http://localhost:5173",
+].filter((origin) => typeof origin === "string" && origin.trim())
+  .map((origin) => origin.trim().replace(/\/$/, ""));
+
 const corsOptions = {
-  origin: [
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-    "http://localhost:5173",
-  ],
+  origin: configuredOrigins,
   credentials: true,
 };
 
@@ -81,6 +86,17 @@ app.get(
 
 const PORT = Number(process.env.PORT) || 5000;
 
-app.listen(PORT, "0.0.0.0", () => {
-  console.log(`Server listening on port ${PORT}`);
-});
+const startServer = async () => {
+  try {
+    await connectDB();
+
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`Server listening on port ${PORT}`);
+    });
+  } catch (error) {
+    console.error("Startup failed:", error.message);
+    process.exit(1);
+  }
+};
+
+startServer();
