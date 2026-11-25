@@ -14,6 +14,9 @@ const adminMiddleware = require("./middleware/adminMiddleware");
 const authMiddleware = require("./middleware/authMiddleware");
 const profileRoutes = require("./routes/profileRoutes");
 const locationRoutes = require("./routes/locationRoutes");
+const courseRoutes = require("./routes/courseRoutes");
+const paymentRoutes = require("./routes/paymentRoutes");
+const { handleRazorpayWebhook } = require("./controller/paymentController");
 
 const passport = require("./config/passport");
 
@@ -30,13 +33,28 @@ const corsOptions = {
   credentials: true,
 };
 
+
+
 app.use(cors(corsOptions));
+
+
+app.post(
+  "/api/payment/webhook",
+  express.raw({ type: "application/json" }),
+  handleRazorpayWebhook,
+);
+
+
 app.use(express.json());
 app.use(cookieParser());
 app.use(passport.initialize());
 app.use("/api/auth", authRoutes);
 app.use("/api/profile", profileRoutes);
 app.use("/api/location", locationRoutes);
+app.use("/api/courses", courseRoutes);
+app.use("/api/payment", paymentRoutes);
+
+
 
 app.get("/api/health", (req, res) => {
   res.json({
