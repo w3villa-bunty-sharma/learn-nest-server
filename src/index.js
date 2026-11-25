@@ -6,17 +6,19 @@ const cors = require("cors");
 const helmet = require("helmet");
 const cookieParser = require("cookie-parser");
 
+
 const { pool, connectDB } = require("./config/db");
 
 const authRoutes = require("./routes/authRoutes");
 const adminMiddleware = require("./middleware/adminMiddleware");
 const authMiddleware = require("./middleware/authMiddleware");
+const profileRoutes = require("./routes/profileRoutes");
+const locationRoutes = require("./routes/locationRoutes");
 
 const passport = require("./config/passport");
 
 const app = express();
 
-// Security middleware
 app.use(helmet());
 
 const corsOptions = {
@@ -29,20 +31,13 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
-
-// Request middleware
 app.use(express.json());
-
-// Parse cookies before Passport routes.
 app.use(cookieParser());
-
-// Initialize Passport without persistent login sessions.
 app.use(passport.initialize());
-
-// Authentication routes
 app.use("/api/auth", authRoutes);
+app.use("/api/profile", profileRoutes);
+app.use("/api/location", locationRoutes);
 
-// Health check
 app.get("/api/health", (req, res) => {
   res.json({
     success: true,
@@ -50,7 +45,6 @@ app.get("/api/health", (req, res) => {
   });
 });
 
-// Admin dashboard
 app.get(
   "/api/admin/dashboard",
   authMiddleware,
@@ -64,7 +58,7 @@ app.get(
   }
 );
 
-// Start server
+
 const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, () => {
