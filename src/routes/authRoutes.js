@@ -40,12 +40,14 @@ router.get(
   "/facebook/callback",
   passport.authenticate("facebook", {
     session: false,
-    failureRedirect: "http://localhost:3000/login?error=facebook",
+    failureRedirect: `${(
+      process.env.FRONTEND_URL || "http://localhost:3000"
+    ).replace(/\/$/, "")}/login?error=facebook`,
   }),
   facebookLogin
 );
 
-// // Exchange one-time authorization code for JWT
-// router.post("/facebook/exchange", exchangeFacebookCode);
+// Exchange one-time authorization code for JWT
+router.post("/facebook/exchange", exchangeFacebookCode);
 
 module.exports = router;
