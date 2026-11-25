@@ -1,13 +1,17 @@
-
 require("dotenv").config();
 
 const { Pool } = require("pg");
+
+const databaseUrl =
+  process.env.DATABASE_URL || process.env.LOCAL_DATABASE_URL;
+
+if (!databaseUrl) {
+  console.error("Database URL is missing");
+  process.exit(1);
+}
+
 const pool = new Pool({
-  host: process.env.DB_HOST || "localhost",
-  port: Number(process.env.DB_PORT) || 5432,
-  database: process.env.DB_NAME || "user_management_db",
-  user: process.env.DB_USER || "user_management",
-  password: process.env.DB_PASSWORD,
+  connectionString: databaseUrl,
 });
 
 pool.on("error", (error) => {
@@ -20,7 +24,7 @@ const connectDB = async () => {
     console.log("Database connected at:", result.rows[0].server_time);
   } catch (error) {
     console.error("Database connection failed:", error.message);
-    process.exit(1); // stop the app, because it can't work without the database
+    process.exit(1);
   }
 };
 
