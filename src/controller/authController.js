@@ -9,7 +9,7 @@ const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 const API_BASE_URL = (
   process.env.API_BASE_URL || `http://localhost:${process.env.PORT || 5000}`
 ).replace(/\/$/, "");
-const FRONTEND_URL = (process.env.FRONTEND_URL || "http://localhost:3000")
+const FRONTEND_URL = (process.env.CLIENT_URL || "http://localhost:3000")
   .replace(/\/$/, "");
 const frontendPath = (path) => `${FRONTEND_URL}${path}`;
 
