@@ -2,7 +2,7 @@ const bcrypt = require("bcrypt");
 const { pool } = require("../config/db");
 const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
-const transporter = require("../config/email");
+const sendEmail = require("../config/brevo");
 const { OAuth2Client } = require("google-auth-library");
 
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
@@ -15,6 +15,8 @@ const frontendPath = (path) => `${FRONTEND_URL}${path}`;
 
 // SIGNUP
 const signup = async (req, res) => {
+  let client;
+  let sendingVerificationEmail = false;
   try {
     const { name, email, password } = req.body;
 
@@ -62,10 +64,12 @@ const signup = async (req, res) => {
       .update(verificationToken)
       .digest("hex");
 
-    const verificationTokenExpiry = new Date(Date.now() + 1 * 60 * 1000);
+    const verificationTokenExpiry = new Date(Date.now() + 15 * 60 * 1000);
 
     // Save the user and verification token in the database
-    await pool.query(
+    client = await pool.connect();
+    await client.query("BEGIN");
+    await client.query(
       `INSERT INTO users
    (name, email, password_hash, email_verification_token_hash, email_verification_expires_at)
    VALUES ($1, $2, $3, $4, $5)`,
@@ -77,22 +81,30 @@ const signup = async (req, res) => {
         verificationTokenExpiry,
       ],
     );
+    console.log("[SUCCESS] User inserted into database");
 
     // Create the email verification link
     const verificationLink = `${API_BASE_URL}/api/auth/verify-email?token=${verificationToken}`;
 
-    // Send the verification email
-    await transporter.sendMail({
-      from: process.env.EMAIL_USER,
+    // sending verification link
+    sendingVerificationEmail = true;
+    const data = await sendEmail({
       to: normalizedEmail,
       subject: "Verify Your Email Address",
       html: `
-    <h2>Welcome to Learn-Nest!</h2>
+    <h2>Welcome to LearnNest!</h2>
     <p>Please click the link below to verify your email address:</p>
     <a href="${verificationLink}">Verify Email</a>
-    <p>This link will expire in 1 minute.</p>
+    <p>This link will expire in 15 minutes.</p>
   `,
     });
+
+    console.log("[SUCCESS] Verification email sent:", data?.messageId);
+
+    sendingVerificationEmail = false;
+
+
+    await client.query("COMMIT");
 
     return res.status(201).json({
       success: true,
@@ -101,10 +113,30 @@ const signup = async (req, res) => {
   } catch (error) {
     console.error("Signup error:", error.message);
 
+    if (client) {
+      await client.query("ROLLBACK").catch(() => { });
+    }
+
+    if (error.code === "23505") {
+      return res.status(409).json({
+        success: false,
+        message: "An account with this email already exists. Please log in or request another verification email.",
+      });
+    }
+
+    if (sendingVerificationEmail) {
+      return res.status(503).json({
+        success: false,
+        message: "We couldn't send the verification email. Please try again later.",
+      });
+    }
+
     return res.status(500).json({
       success: false,
       message: "Signup failed. Please try again.",
     });
+  } finally {
+    client?.release();
   }
 };
 
@@ -205,8 +237,8 @@ const resendVerificationEmail = async (req, res) => {
       .update(verificationToken)
       .digest("hex");
 
-    // Set token expiry to 1 minute
-    const verificationTokenExpiry = new Date(Date.now() + 1 * 60 * 1000);
+    // Set token expiry to 15 minutes
+    const verificationTokenExpiry = new Date(Date.now() + 15 * 60 * 1000);
 
     // Update verification token in database
     await pool.query(
@@ -218,21 +250,25 @@ const resendVerificationEmail = async (req, res) => {
     );
 
     // Create verification link
-    const verificationLink = `${API_BASE_URL}/api/auth/verify-email?token=${verificationToken}`;
-
-    // Send verification email using existing transporter
-    await transporter.sendMail({
-      from: process.env.EMAIL_USER,
+    const data = await sendEmail({
       to: normalizedEmail,
       subject: "Verify Your Email Address",
       html: `
-        <h2>Welcome to Learn-Nest!</h2>
-        <p>Please click the link below to verify your email address:</p>
-        <a href="${verificationLink}">Verify Email</a>
-        <p>This link will expire in 1 minute.</p>
-      `,
+    <h2>Welcome to LearnNest!</h2>
+    <p>Please click the link below to verify your email address:</p>
+    <a href="${verificationLink}">Verify Email</a>
+    <p>This link will expire in 15 minutes.</p>
+  `,
     });
 
+    console.log("[SUCCESS] Verification email sent:", data?.messageId);
+
+    if (error) {
+      console.error("[RESEND ERROR]", error);
+      throw new Error(error.message || "Email sending failed");
+    }
+
+    console.log("[SUCCESS] Verification email sent:", data?.id);
     return res.status(200).json({
       success: true,
       message: "Verification email sent successfully",
