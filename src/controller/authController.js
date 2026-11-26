@@ -64,10 +64,11 @@ const signup = async (req, res) => {
       .update(verificationToken)
       .digest("hex");
 
-    const verificationTokenExpiry = new Date(Date.now() + 1 * 60 * 1000);
+    const verificationTokenExpiry = new Date(Date.now() + 15 * 60 * 1000);
 
     // Save the user and verification token in the database
     client = await pool.connect();
+    console.log("[SUCCESS] Database connected");
     await client.query("BEGIN");
     await client.query(
       `INSERT INTO users
@@ -81,6 +82,7 @@ const signup = async (req, res) => {
         verificationTokenExpiry,
       ],
     );
+        console.log("[SUCCESS] User inserted into database");
 
     // Create the email verification link
     const verificationLink = `${API_BASE_URL}/api/auth/verify-email?token=${verificationToken}`;
@@ -95,7 +97,7 @@ const signup = async (req, res) => {
     <h2>Welcome to Learn-Nest!</h2>
     <p>Please click the link below to verify your email address:</p>
     <a href="${verificationLink}">Verify Email</a>
-    <p>This link will expire in 1 minute.</p>
+    <p>This link will expire in 15 minutes.</p>
   `,
     });
     sendingVerificationEmail = false;
@@ -233,8 +235,8 @@ const resendVerificationEmail = async (req, res) => {
       .update(verificationToken)
       .digest("hex");
 
-    // Set token expiry to 1 minute
-    const verificationTokenExpiry = new Date(Date.now() + 1 * 60 * 1000);
+    // Set token expiry to 15 minutes
+    const verificationTokenExpiry = new Date(Date.now() + 15 * 60 * 1000);
 
     // Update verification token in database
     await pool.query(
@@ -257,7 +259,7 @@ const resendVerificationEmail = async (req, res) => {
         <h2>Welcome to Learn-Nest!</h2>
         <p>Please click the link below to verify your email address:</p>
         <a href="${verificationLink}">Verify Email</a>
-        <p>This link will expire in 1 minute.</p>
+        <p>This link will expire in 15 minutes.</p>
       `,
     });
 
