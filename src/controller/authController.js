@@ -2,7 +2,7 @@ const bcrypt = require("bcrypt");
 const { pool } = require("../config/db");
 const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
-const transporter = require("../config/email");
+const sendEmail = require("../config/brevo");
 const { OAuth2Client } = require("google-auth-library");
 
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
@@ -68,7 +68,6 @@ const signup = async (req, res) => {
 
     // Save the user and verification token in the database
     client = await pool.connect();
-    console.log("[SUCCESS] Database connected");
     await client.query("BEGIN");
     await client.query(
       `INSERT INTO users
@@ -82,25 +81,28 @@ const signup = async (req, res) => {
         verificationTokenExpiry,
       ],
     );
-        console.log("[SUCCESS] User inserted into database");
+    console.log("[SUCCESS] User inserted into database");
 
     // Create the email verification link
     const verificationLink = `${API_BASE_URL}/api/auth/verify-email?token=${verificationToken}`;
 
-    // Send the verification email
+    // sending verification link
     sendingVerificationEmail = true;
-    await transporter.sendMail({
-      from: process.env.EMAIL_USER,
+    const data = await sendEmail({
       to: normalizedEmail,
       subject: "Verify Your Email Address",
       html: `
-    <h2>Welcome to Learn-Nest!</h2>
+    <h2>Welcome to LearnNest!</h2>
     <p>Please click the link below to verify your email address:</p>
     <a href="${verificationLink}">Verify Email</a>
     <p>This link will expire in 15 minutes.</p>
   `,
     });
+
+    console.log("[SUCCESS] Verification email sent:", data?.messageId);
+
     sendingVerificationEmail = false;
+
 
     await client.query("COMMIT");
 
@@ -112,7 +114,7 @@ const signup = async (req, res) => {
     console.error("Signup error:", error.message);
 
     if (client) {
-      await client.query("ROLLBACK").catch(() => {});
+      await client.query("ROLLBACK").catch(() => { });
     }
 
     if (error.code === "23505") {
@@ -248,21 +250,25 @@ const resendVerificationEmail = async (req, res) => {
     );
 
     // Create verification link
-    const verificationLink = `${API_BASE_URL}/api/auth/verify-email?token=${verificationToken}`;
-
-    // Send verification email using existing transporter
-    await transporter.sendMail({
-      from: process.env.EMAIL_USER,
+    const data = await sendEmail({
       to: normalizedEmail,
       subject: "Verify Your Email Address",
       html: `
-        <h2>Welcome to Learn-Nest!</h2>
-        <p>Please click the link below to verify your email address:</p>
-        <a href="${verificationLink}">Verify Email</a>
-        <p>This link will expire in 15 minutes.</p>
-      `,
+    <h2>Welcome to LearnNest!</h2>
+    <p>Please click the link below to verify your email address:</p>
+    <a href="${verificationLink}">Verify Email</a>
+    <p>This link will expire in 15 minutes.</p>
+  `,
     });
 
+    console.log("[SUCCESS] Verification email sent:", data?.messageId);
+
+    if (error) {
+      console.error("[RESEND ERROR]", error);
+      throw new Error(error.message || "Email sending failed");
+    }
+
+    console.log("[SUCCESS] Verification email sent:", data?.id);
     return res.status(200).json({
       success: true,
       message: "Verification email sent successfully",
