@@ -15,6 +15,8 @@ const frontendPath = (path) => `${FRONTEND_URL}${path}`;
 
 // SIGNUP
 const signup = async (req, res) => {
+  let client;
+  let sendingVerificationEmail = false;
   try {
     const { name, email, password } = req.body;
 
@@ -65,7 +67,9 @@ const signup = async (req, res) => {
     const verificationTokenExpiry = new Date(Date.now() + 1 * 60 * 1000);
 
     // Save the user and verification token in the database
-    await pool.query(
+    client = await pool.connect();
+    await client.query("BEGIN");
+    await client.query(
       `INSERT INTO users
    (name, email, password_hash, email_verification_token_hash, email_verification_expires_at)
    VALUES ($1, $2, $3, $4, $5)`,
@@ -82,6 +86,7 @@ const signup = async (req, res) => {
     const verificationLink = `${API_BASE_URL}/api/auth/verify-email?token=${verificationToken}`;
 
     // Send the verification email
+    sendingVerificationEmail = true;
     await transporter.sendMail({
       from: process.env.EMAIL_USER,
       to: normalizedEmail,
@@ -93,6 +98,9 @@ const signup = async (req, res) => {
     <p>This link will expire in 1 minute.</p>
   `,
     });
+    sendingVerificationEmail = false;
+
+    await client.query("COMMIT");
 
     return res.status(201).json({
       success: true,
@@ -101,10 +109,30 @@ const signup = async (req, res) => {
   } catch (error) {
     console.error("Signup error:", error.message);
 
+    if (client) {
+      await client.query("ROLLBACK").catch(() => {});
+    }
+
+    if (error.code === "23505") {
+      return res.status(409).json({
+        success: false,
+        message: "An account with this email already exists. Please log in or request another verification email.",
+      });
+    }
+
+    if (sendingVerificationEmail) {
+      return res.status(503).json({
+        success: false,
+        message: "We couldn't send the verification email. Please try again later.",
+      });
+    }
+
     return res.status(500).json({
       success: false,
       message: "Signup failed. Please try again.",
     });
+  } finally {
+    client?.release();
   }
 };
 
